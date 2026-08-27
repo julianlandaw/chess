@@ -31,7 +31,7 @@
       width: min(1180px, calc(100% - 32px)); margin: 28px auto 40px; display: grid;
       grid-template-columns: minmax(420px, 720px) minmax(300px, 360px); gap: clamp(24px, 4vw, 54px); align-items: start;
     }
-    .board-column { min-width: 0; }
+    .board-column { --board-size: 720px; width: min(100%, var(--board-size)); min-width: 0; justify-self: center; }
     .player-row { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .player { display: flex; align-items: center; gap: 11px; }
     .avatar { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 9px; background: #353a33; color: #d5d8d1; font-size: 20px; }
@@ -39,7 +39,7 @@
     .player strong { display: block; font-size: 14px; }
     .player span, .material { color: var(--muted); font-size: 12px; min-height: 16px; }
     .turn-dot { width: 7px; height: 7px; margin-left: 6px; display: inline-block; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(216,168,78,.12); }
-    #board-shell { position: relative; padding: 9px; border-radius: 5px; background: #393d35; box-shadow: 0 28px 70px rgba(0,0,0,.32); }
+    #board-shell { position: relative; padding: 9px; border-radius: 5px; background: #393d35; box-shadow: 0 28px 70px rgba(0,0,0,.32); container-type: inline-size; }
     #board { display: grid; grid-template-columns: repeat(8,1fr); width: 100%; aspect-ratio: 1; overflow: hidden; }
     .square {
       position: relative; aspect-ratio: 1; display: grid; place-items: center; border: 0; padding: 0;
@@ -47,7 +47,8 @@
     }
     .square.light { background: var(--light); }
     .square.dark { background: var(--dark); }
-    .piece { position: relative; z-index: 2; font-family: "Arial Unicode MS", "Noto Sans Symbols 2", serif; font-size: clamp(35px, 8.7vw, 72px); line-height: 1; cursor: grab; transition: transform .12s ease; }
+    .piece { position: relative; z-index: 2; touch-action: none; font-family: "Arial Unicode MS", "Noto Sans Symbols 2", serif; font-size: clamp(24px, 11cqi, 72px); line-height: 1; cursor: grab; transition: transform .12s ease, opacity .12s; }
+    .piece.dragging { opacity: .45; cursor: grabbing; }
     .square:hover .piece { transform: translateY(-2px); }
     .white-piece { color: #f8f5ed; text-shadow: 0 1px 0 #252720, 1px 0 #252720, -1px 0 #252720, 0 -1px #252720, 0 3px 5px rgba(0,0,0,.35); }
     .black-piece { color: #20231f; text-shadow: 0 1px 1px rgba(255,255,255,.25), 0 3px 4px rgba(0,0,0,.3); }
@@ -56,11 +57,14 @@
     .square.last::before { background: rgba(225,190,61,.34); }
     .square.check::before { background: radial-gradient(circle, rgba(207,66,49,.78), rgba(207,66,49,.15) 68%, transparent 70%); }
     .square.legal::after { content: ""; position: absolute; z-index: 3; width: 24%; height: 24%; border-radius: 50%; background: rgba(34,44,32,.44); pointer-events: none; }
-    .square.capture::after { content: ""; position: absolute; z-index: 3; inset: 7%; border: clamp(4px,.7vw,7px) solid rgba(42,50,38,.45); border-radius: 50%; pointer-events: none; }
-    .coord { position: absolute; z-index: 4; font-size: clamp(9px,1.2vw,12px); font-weight: 800; pointer-events: none; }
+    .square.capture::after { content: ""; position: absolute; z-index: 3; inset: 7%; border: clamp(3px,.9cqi,7px) solid rgba(42,50,38,.45); border-radius: 50%; pointer-events: none; }
+    .coord { position: absolute; z-index: 4; font-size: clamp(8px,1.7cqi,12px); font-weight: 800; pointer-events: none; }
     .coord.rank { top: 4px; left: 5px; } .coord.file { right: 5px; bottom: 3px; }
     .light .coord { color: #64735b; } .dark .coord { color: #d7cfb9; }
     .board-actions { display: flex; justify-content: center; gap: 7px; margin-top: 14px; }
+    .board-size-control { width: min(290px, calc(100% - 20px)); margin: 12px auto 0; display: grid; grid-template-columns: auto 1fr 40px; align-items: center; gap: 9px; color: var(--muted); font-size: 10px; }
+    .board-size-control input { min-width: 0; margin: 0; }
+    .board-size-control output { color: #cdd1c8; font-variant-numeric: tabular-nums; text-align: right; }
     .icon-button, .text-button {
       min-height: 38px; border: 1px solid var(--line); color: #d7dbd2; background: #242824; border-radius: 8px;
       cursor: pointer; transition: background .15s, border-color .15s, transform .15s;
@@ -141,7 +145,7 @@
     @media (max-width: 520px) {
       .app-header { height: 62px; padding: 0 14px; } .mode-pill, .brand small { display: none; }
       .workspace { width: 100%; margin-top: 8px; } .player-row, .board-actions { margin-left: 10px; margin-right: 10px; }
-      #board-shell { padding: 4px; border-radius: 0; } .piece { font-size: 11.6vw; }
+      #board-shell { padding: 4px; border-radius: 0; }
       .side-panel { margin: 0 10px 20px; } .tips { display: none; }
     }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
@@ -181,6 +185,7 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
     <button class="text-button" id="copyPgn" title="Copy game notation">Copy PGN</button>
     <button class="text-button" id="newGame">New game</button>
   </div>
+  <label class="board-size-control" for="boardSize"><span>Board size</span><input id="boardSize" type="range" min="55" max="100" value="100"><output id="boardSizeValue" for="boardSize">100%</output></label>
     </section>
 
     <aside class="side-panel" aria-label="Game information">
@@ -248,6 +253,9 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
     let flipped = false;
     let redoStack = [];
     let dragFrom = null;
+    let pointerDrag = null;
+    let suppressNextClick = false;
+    let boardSizeIsManual = false;
     let pendingPromotion = null;
     let engineBusy = false;
     let computerMoveToken = 0;
@@ -255,6 +263,7 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
     let gameArchived = false;
     const STORAGE_CURRENT = 'quietKnight.current.v2';
     const STORAGE_GAMES = 'quietKnight.games.v2';
+    const STORAGE_BOARD_SIZE = 'quietKnight.boardSize.v2';
     const levelNames = ['Casual', 'Improver', 'Club', 'Expert', 'Master'];
     const levelDepths = [5, 7, 9, 11, 13];
 
@@ -417,7 +426,10 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
         square.className = `square ${(fileIndex + rankIndex) % 2 ? 'dark' : 'light'}`;
         square.dataset.square = name;
         square.setAttribute('aria-label', name);
-        square.addEventListener('click', () => chooseSquare(name));
+        square.addEventListener('click', () => {
+          if (suppressNextClick) return;
+          chooseSquare(name);
+        });
         square.addEventListener('dragover', event => event.preventDefault());
         square.addEventListener('drop', event => { event.preventDefault(); if (dragFrom) attemptMove(dragFrom, name); });
         if (index % 8 === 0) square.insertAdjacentHTML('beforeend', `<span class="coord rank">${name[1]}</span>`);
@@ -445,8 +457,21 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
           span.className = `piece ${piece.color === 'w' ? 'white-piece' : 'black-piece'}`;
           span.textContent = pieceSymbol(piece);
           span.draggable = piece.color === game.turn() && !game.game_over();
-          span.addEventListener('dragstart', event => { dragFrom = name; event.dataTransfer.effectAllowed = 'move'; selectSquare(name); });
-          span.addEventListener('dragend', () => { dragFrom = null; });
+          span.addEventListener('dragstart', event => {
+            dragFrom = name;
+            selected = name;
+            legalMoves = game.moves({square:name, verbose:true});
+            event.dataTransfer.effectAllowed = 'move';
+            document.querySelectorAll('.square').forEach(target => {
+              const targetName = target.dataset.square;
+              target.classList.toggle('selected', targetName === name);
+              target.classList.toggle('legal', legalMoves.some(move => move.to === targetName && !game.get(targetName)));
+              target.classList.toggle('capture', legalMoves.some(move => move.to === targetName && !!game.get(targetName)));
+            });
+            setTimeout(() => span.classList.add('dragging'), 0);
+          });
+          span.addEventListener('dragend', () => { dragFrom = null; span.classList.remove('dragging'); clearSelection(); });
+          span.addEventListener('pointerdown', event => startPointerDrag(event, name));
           square.appendChild(span);
           square.setAttribute('aria-label', `${name}, ${piece.color === 'w' ? 'white' : 'black'} ${piece.type}`);
         } else square.setAttribute('aria-label', `${name}, empty`);
@@ -475,6 +500,35 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
     }
 
     function clearSelection() { selected = null; legalMoves = []; renderBoard(); }
+
+    function startPointerDrag(event, from) {
+      if (event.pointerType === 'mouse' || event.button !== 0 || engineBusy || analysisRunning || isComputerTurn()) return;
+      const piece = game.get(from);
+      if (!piece || piece.color !== game.turn() || game.game_over()) return;
+      pointerDrag = {id:event.pointerId, from, startX:event.clientX, startY:event.clientY, moved:false, element:event.currentTarget};
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+
+    function movePointerDrag(event) {
+      if (!pointerDrag || event.pointerId !== pointerDrag.id) return;
+      if (!pointerDrag.moved && Math.hypot(event.clientX - pointerDrag.startX, event.clientY - pointerDrag.startY) > 7) {
+        pointerDrag.moved = true;
+        pointerDrag.element.classList.add('dragging');
+      }
+      if (pointerDrag.moved) event.preventDefault();
+    }
+
+    function finishPointerDrag(event) {
+      if (!pointerDrag || event.pointerId !== pointerDrag.id) return;
+      const drag = pointerDrag;
+      pointerDrag = null;
+      drag.element.classList.remove('dragging');
+      if (!drag.moved || event.type === 'pointercancel') return;
+      suppressNextClick = true;
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('.square')?.dataset.square;
+      if (target) attemptMove(drag.from, target); else clearSelection();
+      setTimeout(() => { suppressNextClick = false; }, 0);
+    }
 
     function attemptMove(from, to) {
       const candidates = game.moves({square:from, verbose:true}).filter(move => move.to === to);
@@ -666,6 +720,28 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
       document.getElementById('level-name').textContent = `${levelNames[level - 1]} · ${level}`;
     }
 
+    function fullBoardSize() {
+      const workspace = document.querySelector('.workspace');
+      const isStacked = window.innerWidth <= 860;
+      const firstTrack = parseFloat(getComputedStyle(workspace).gridTemplateColumns) || workspace.clientWidth;
+      return Math.min(720, isStacked ? workspace.clientWidth : firstTrack);
+    }
+
+    function defaultBoardSize() {
+      if (window.innerWidth <= 860) return 100;
+      const fullSize = fullBoardSize();
+      const fittedSize = Math.min(fullSize, Math.max(300, window.innerHeight - 308));
+      return Math.max(55, Math.min(100, Math.round(fittedSize / fullSize * 100)));
+    }
+
+    function updateBoardSize(value, persist = true) {
+      const size = Math.max(55, Math.min(100, Number(value) || 100));
+      document.querySelector('.board-column').style.setProperty('--board-size', `${Math.round(fullBoardSize() * size / 100)}px`);
+      document.getElementById('boardSize').value = size;
+      document.getElementById('boardSizeValue').value = `${size}%`;
+      if (persist) { boardSizeIsManual = true; storageWrite(STORAGE_BOARD_SIZE, size); }
+    }
+
     function startFreshGame() {
       if (engineBusy) {
         computerMoveToken++; engineBusy = false; engine.cancel();
@@ -696,6 +772,7 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
     document.querySelectorAll('.tab-button').forEach(button => button.onclick = () => switchTab(button.dataset.tab));
     document.getElementById('analyzeGame').onclick = analyzeGame;
     document.getElementById('engineLevel').oninput = () => { updateLevelLabel(); saveCurrent(); };
+    document.getElementById('boardSize').oninput = event => updateBoardSize(event.currentTarget.value);
     document.getElementById('opponentMode').onchange = () => { document.getElementById('humanColor').disabled = setting('opponentMode') === 'local'; document.getElementById('header-mode').textContent = setting('opponentMode') === 'computer' ? 'Computer game · Local engine' : 'Two-player practice · Offline'; startFreshGame(); };
     document.getElementById('humanColor').onchange = startFreshGame;
     document.getElementById('newGame').onclick = startFreshGame;
@@ -720,8 +797,15 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
       if (event.key.toLowerCase() === 'r') document.getElementById('redo').click();
       if (event.key.toLowerCase() === 'f') document.getElementById('flip').click();
     });
+    document.addEventListener('pointermove', movePointerDrag, {passive:false});
+    document.addEventListener('pointerup', finishPointerDrag);
+    document.addEventListener('pointercancel', finishPointerDrag);
+    window.addEventListener('resize', () => updateBoardSize(boardSizeIsManual ? document.getElementById('boardSize').value : defaultBoardSize(), false));
 
     restoreCurrent();
+    const savedBoardSize = storageRead(STORAGE_BOARD_SIZE, null);
+    boardSizeIsManual = savedBoardSize !== null;
+    updateBoardSize(boardSizeIsManual ? savedBoardSize : defaultBoardSize(), false);
     updateLevelLabel();
     document.getElementById('humanColor').disabled = setting('opponentMode') === 'local' || game.history().length > 0;
     document.getElementById('header-mode').textContent = isComputerGame() ? 'Computer game · Local engine' : 'Two-player practice · Offline';
