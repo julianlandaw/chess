@@ -96,6 +96,7 @@
     .range-row { display: flex; align-items: center; gap: 10px; }
     #level-name { min-width: 70px; color: #d9ddd5; font-size: 11px; text-align: right; }
     .engine-state { grid-column: 1 / -1; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 10px; }
+    .engine-stop { margin-left: auto; padding: 2px 7px; color: #db8b7c; border: 1px solid #70473f; border-radius: 5px; background: transparent; font-size: 10px; cursor: pointer; }
     .engine-light { width: 6px; height: 6px; border-radius: 50%; background: #767c73; }
     .engine-light.ready { background: #88ad7f; box-shadow: 0 0 0 3px rgba(136,173,127,.13); }
     .engine-light.busy { background: var(--accent); animation: pulse 1s infinite alternate; }
@@ -199,7 +200,7 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
           <div class="field"><label for="opponentMode">Opponent</label><select id="opponentMode"><option value="computer">Computer</option><option value="local">Two players</option></select></div>
           <div class="field"><label for="humanColor">Play as</label><select id="humanColor"><option value="w">White</option><option value="b">Black</option></select></div>
           <div class="field wide"><div class="range-label">Computer strength</div><div class="range-row"><input id="engineLevel" type="range" min="1" max="5" value="3"><span id="level-name">Club · 3</span></div></div>
-          <div class="engine-state"><span id="engine-light" class="engine-light"></span><span id="engine-status">Loading Stockfish…</span></div>
+          <div class="engine-state"><span id="engine-light" class="engine-light"></span><span id="engine-status">Loading Stockfish…</span><button id="stopEngine" class="engine-stop" hidden>Stop</button></div>
         </div>
         <div class="ledger-head"><h2>Move ledger</h2><span id="move-count">0 moves</span></div>
         <div id="moves"><div class="empty-moves">Your game will be recorded here.</div></div>
@@ -249,6 +250,7 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
     let dragFrom = null;
     let pendingPromotion = null;
     let engineBusy = false;
+    let computerMoveToken = 0;
     let analysisRunning = false;
     let gameArchived = false;
     const STORAGE_CURRENT = 'quietKnight.current.v2';
@@ -258,21 +260,54 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
 
     class StockfishController {
       constructor() {
-        this.ready = false; this.failed = false; this.active = null; this.queue = [];
+        this.ready = false; this.failed = false; this.active = null; this.queue = []; this.generation = 0;
+        this.start();
+      }
+      start() {
+        const generation = ++this.generation;
+        clearTimeout(this.startupTimer);
+        this.startupTimer = setTimeout(() => {
+          if (generation === this.generation && !this.ready) this.fail('Stockfish failed to load');
+        }, 30000);
         try {
-          this.worker = new Worker('stockfish-18-lite-single.js#stockfish-18-lite-single.wasm,worker');
-          this.worker.onmessage = event => this.handle(String(event.data));
-          this.worker.onerror = () => this.fail('Engine unavailable — serve this folder over HTTP');
+          this.worker = new Worker('stockfish-18-lite-single.js#stockfish-18-lite-single.wasm');
+          this.worker.onmessage = event => {
+            if (generation !== this.generation) return;
+            String(event.data).split(/\r?\n/).forEach(line => this.handle(line.trim()));
+          };
+          this.worker.onerror = () => {
+            if (generation === this.generation) this.fail('Engine unavailable — serve this folder over HTTP');
+          };
           this.worker.postMessage('uci');
         } catch (error) { this.fail('Engine unavailable — serve this folder over HTTP'); }
       }
       fail(message) {
+        clearTimeout(this.startupTimer);
         this.failed = true; setEngineState(message, '');
+        this.rejectPending(message);
+      }
+      rejectPending(message) {
         this.queue.splice(0).forEach(job => job.reject(new Error(message)));
-        if (this.active) { this.active.reject(new Error(message)); this.active = null; }
+        if (this.active) {
+          clearTimeout(this.active.timer);
+          this.active.reject(new Error(message)); this.active = null;
+        }
+      }
+      restart(message = 'Stockfish restarted') {
+        clearTimeout(this.startupTimer);
+        this.generation++;
+        this.worker?.terminate();
+        this.rejectPending(message);
+        this.ready = false; this.failed = false;
+        setEngineState('Loading Stockfish…', '');
+        this.start();
+      }
+      cancel() {
+        if (this.active || this.queue.length) this.restart('Stockfish stopped');
       }
       handle(line) {
         if (line === 'uciok') {
+          clearTimeout(this.startupTimer);
           this.ready = true; setEngineState('Stockfish 18 ready', 'ready'); this.pump(); return;
         }
         if (!this.active) return;
@@ -288,6 +323,7 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
         }
         if (line.startsWith('bestmove ')) {
           const result = {bestMove:line.split(/\s+/)[1], lines:[...this.active.lines.entries()].sort((a,b) => a[0]-b[0]).map(entry => entry[1])};
+          clearTimeout(this.active.timer);
           this.active.resolve(result); this.active = null; this.pump();
         }
       }
@@ -302,6 +338,7 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
         this.worker.postMessage(`setoption name Skill Level value ${this.active.skill}`);
         this.worker.postMessage(`position fen ${this.active.fen}`);
         this.worker.postMessage(`go depth ${this.active.depth}`);
+        this.active.timer = setTimeout(() => this.restart('Stockfish search timed out'), 30000);
       }
     }
 
@@ -344,6 +381,7 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
 
     async function maybeComputerMove() {
       if (!isComputerTurn() || engineBusy || engine.failed) return;
+      const token = ++computerMoveToken;
       engineBusy = true; clearSelection(); setEngineState('Stockfish is thinking…', 'busy');
       const level = Number(setting('engineLevel'));
       try {
@@ -352,8 +390,15 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
           const move = result.bestMove;
           makeMove({from:move.slice(0,2), to:move.slice(2,4), promotion:move[4]}, true);
         }
-      } catch (error) { setEngineState('Stockfish could not start', ''); }
-      finally { engineBusy = false; if (!engine.failed) setEngineState('Stockfish 18 ready', 'ready'); renderBoard(); }
+      } catch (error) {
+        if (token === computerMoveToken && !engine.failed) setEngineState(error.message.includes('timed out') ? 'Stockfish timed out — try a new game' : 'Stockfish stopped', '');
+      } finally {
+        if (token === computerMoveToken) {
+          engineBusy = false;
+          if (engine.ready && !engine.failed) setEngineState('Stockfish 18 ready', 'ready');
+          renderBoard();
+        }
+      }
     }
 
     function allSquares() {
@@ -509,7 +554,8 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
       moveListEl.scrollTop = moveListEl.scrollHeight;
       document.getElementById('undo').disabled = history.length === 0 || engineBusy || analysisRunning;
       document.getElementById('redo').disabled = redoStack.length === 0 || engineBusy || analysisRunning;
-      document.getElementById('newGame').disabled = engineBusy || analysisRunning;
+      document.getElementById('newGame').disabled = analysisRunning;
+      document.getElementById('stopEngine').hidden = !engineBusy && !analysisRunning;
       document.getElementById('analyzeGame').disabled = history.length === 0 || analysisRunning || engine.failed;
       document.getElementById('humanColor').disabled = history.length > 0 || setting('opponentMode') === 'local';
       document.getElementById('opponentMode').disabled = history.length > 0;
@@ -621,6 +667,9 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
     }
 
     function startFreshGame() {
+      if (engineBusy) {
+        computerMoveToken++; engineBusy = false; engine.cancel();
+      }
       archiveCurrent(); game.reset(); redoStack = []; selected = null; legalMoves = []; gameArchived = false;
       storageWrite(STORAGE_CURRENT, {pgn:'', mode:setting('opponentMode'), color:setting('humanColor'), level:Number(setting('engineLevel'))});
       renderBoard(); maybeComputerMove();
@@ -650,6 +699,9 @@ var Chess=function(r){var u="b",s="w",l=-1,_="p",A="n",S="b",m="r",y="q",p="k",t
     document.getElementById('opponentMode').onchange = () => { document.getElementById('humanColor').disabled = setting('opponentMode') === 'local'; document.getElementById('header-mode').textContent = setting('opponentMode') === 'computer' ? 'Computer game · Local engine' : 'Two-player practice · Offline'; startFreshGame(); };
     document.getElementById('humanColor').onchange = startFreshGame;
     document.getElementById('newGame').onclick = startFreshGame;
+    document.getElementById('stopEngine').onclick = () => {
+      computerMoveToken++; engineBusy = false; engine.cancel(); renderBoard();
+    };
     document.getElementById('undo').onclick = () => {
       const first = game.undo(); if (first) redoStack.push(first);
       if (isComputerGame() && game.turn() === computerColor() && game.history().length) { const second = game.undo(); if (second) redoStack.push(second); }
